@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Connect Four - Stronger Tactical AI</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    max-width: 480px;
+    margin: 20px auto;
+    text-align: center;
+  }
+  h2 {
+    margin-bottom: 10px;
+  }
+  #board {
+    display: grid;
+    grid-template-columns: repeat(7, 60px);
+    gap: 5px;
+    justify-content: center;
+    margin-bottom: 15px;
+  }
+  .cell {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: #ddd;
+    box-shadow: inset 0 0 5px #aaa;
+    cursor: pointer;
+    transition: background 0.3s;
+  }
+  .cell.player {
+    background: red;
+    box-shadow: inset 0 0 10px #a00;
+  }
+  .cell.ai {
+    background: yellow;
+    box-shadow: inset 0 0 10px #aa0;
+  }
+  #message {
+    font-size: 1.2em;
+    margin: 10px 0;
+  }
+  #wins {
+    margin: 10px 0;
+  }
+  button {
+    padding: 8px 16px;
+    font-size: 1em;
+    cursor: pointer;
+    margin-top: 10px;
+  }
+</style>
+</head>
+<body>
+
+<h2>Connect Four - Stronger Tactical AI</h2>
+
+<div id="wins">Player Wins: 0 | AI Wins: 0</div>
+<div id="message">Your turn! Click a column.</div>
+
+<div id="board"></div>
+
+<button id="resetBtn">Reset Game</button>
+
+<script>
+(() => {
+  const ROWS = 6;
+  const COLS = 7;
+  const PLAYER = 1;
+  const AI = 2;
+  const EMPTY = 0;
+
+  let board = [];
+  let gameOver = false;
+  let playerTurn = true;
+  let playerWins = 0;
+  let aiWins = 0;
+
+  const boardDiv = document.getElementById('board');
+  const messageDiv = document.getElementById('message');
+  const winsDiv = document.getElementById('wins');
+  const resetBtn = document.getElementById('resetBtn');
+
+  function createBoardArray() {
+    board = [];
+    for(let r = 0; r < ROWS; r++) {
+      board[r] = [];
+      for(let c = 0; c < COLS; c++) {
+        board[r][c] = EMPTY;
+      }
+    }
+  }
+
+  function createBoardUI() {
+    boardDiv.innerHTML = '';
+    for(let r = ROWS - 1; r >= 0; r--) {
+      for(let c = 0; c < COLS; c++) {
+        const cell = document.createElement('div');
+        cell.classList.add('cell');
+        cell.dataset.row = r;
+        cell.dataset.col = c;
+        cell.addEventListener('click', () => {
+          if(!gameOver && playerTurn) {
+            playerMove(c);
+          }
+        });
+        boardDiv.appendChild(cell);
+      }
+    }
+  }
+
+  function renderBoard() {
+    for(let r = 0; r < ROWS; r++) {
+      for(let c = 0; c < COLS; c++) {
+        const index = (ROWS - 1 - r)*COLS + c;
+        const cell = boardDiv.children[index];
+        cell.classList.remove('player', 'ai');
+        if(board[r][c] === PLAYER) {
+          cell.classList.add('player');
+        } else if(board[r][c] === AI) {
+          cell.classList.add('ai');
+        }
+      }
+    }
+  }
+
+  function isValidLocation(board, col) {
+    return board[ROWS - 1][col] === EMPTY;
+  }
+
+  function getNextOpenRow(board, col) {
+    for(let r = 0; r < ROWS; r++) {
+      if(board[r][col] === EMPTY) return r;
+    }
+    return null;
+  }
+
+  function dropPiece(board, row, col, piece) {
+    board[row][col] = piece;
+  }
+
+  function winningMove(board, piece) {
+    // Horizontal
+    for(let r=0; r<ROWS; r++) {
+      for(let c=0; c<COLS-3; c++) {
+        if(board[r][c] === piece &&
+           board[r][c+1] === piece &&
+           board[r][c+2] === piece &&
+           board[r][c+3] === piece) return true;
+      }
+    }
+    // Vertical
+    for(let c=0; c<COLS; c++) {
+      for(let r=0; r<ROWS-3; r++) {
+        if(board[r][c] === piece &&
+           board[r+1][c] === piece &&
+           board[r+2][c] === piece &&
+           board[r+3][c] === piece) return true;
+      }
+    }
+    // Positive diagonal
+    for(let r=0; r<ROWS-3; r++) {
+      for(let c=0; c<COLS-3; c++) {
+        if(board[r][c] === piece &&
+           board[r+1][c+1] === piece &&
+           board[r+2][c+2] === piece &&
+           board[r+3][c+3] === piece) return true;
+      }
+    }
+    // Negative diagonal
+    for(let r=3; r<ROWS; r++) {
+      for(let c=0; c<COLS-3; c++) {
+        if(board[r][c] === piece &&
+           board[r-1][c+1] === piece &&
+           board[r-2][c+2] === piece &&
+           board[r-3][c+3] === piece) return true;
+      }
+    }
+    return false;
+  }
+
+  function isBoardFull(board) {
+    for(let c=0; c<COLS; c++) {
+      if(isValidLocation(board, c)) return false;
+    }
+    return true;
+  }
+
+  function evaluateWindow(window, piece) {
+    const oppPiece = piece === PLAYER ? AI : PLAYER;
+    let score = 0;
+    const countPiece = window.filter(p => p === piece).length;
+    const countEmpty = window.filter(p => p === EMPTY).length;
+    const countOpp = window.filter(p => p === oppPiece).length;
+
+    if(countPiece === 4) {
+      score += 10000;
+    } else if(countPiece === 3 && countEmpty === 1) {
+      score += 100;
+    } else if(countPiece === 2 && countEmpty === 2) {
+      score += 10;
+    }
+
+    if(countOpp === 3 && countEmpty === 1) {
+      score -= 120;
+    }
+
+    return score;
+  }
+
+  function scorePosition(board, piece) {
+    let score = 0;
+
+    const centerCol = Math.floor(COLS/2);
+    let centerCount = 0;
+    for(let r=0; r<ROWS; r++) {
+      if(board[r][centerCol] === piece) centerCount++;
+    }
+    score += centerCount * 12;
+
+    // Horizontal
+    for(let r=0; r<ROWS; r++) {
+      for(let c=0; c<COLS-3; c++) {
+        const window = [board[r][c], board[r][c+1], board[r][c+2], board[r][c+3]];
+        score += evaluateWindow(window, piece);
+      }
+    }
+    // Vertical
+    for(let c=0; c<COLS; c++) {
+      for(let r=0; r<ROWS-3; r++) {
+        const window = [board[r][c], board[r+1][c], board[r+2][c], board[r+3][c]];
+        score += evaluateWindow(window, piece);
+      }
+    }
+    // Positive diagonal
+    for(let r=0; r<ROWS-3; r++) {
+      for(let c=0; c<COLS-3; c++) {
+        const window = [board[r][c], board[r+1][c+1], board[r+2][c+2], board[r+3][c+3]];
+        score += evaluateWindow(window, piece);
+      }
+    }
+    // Negative diagonal
+    for(let r=3; r<ROWS; r++) {
+      for(let c=0; c<COLS-3; c++) {
+        const window = [board[r][c], board[r-1][c+1], board[r-2][c+2], board[r-3][c+3]];
+        score += evaluateWindow(window, piece);
+      }
+    }
+
+    return score;
+  }
+
+  function isTerminalNode(board) {
+    return winningMove(board, PLAYER) || winningMove(board, AI) || isBoardFull(board);
+  }
+
+  function getValidLocations(board) {
+    const valid = [];
+    for(let c=0; c<COLS; c++) {
+      if(isValidLocation(board, c)) valid.push(c);
+    }
+    return valid;
+  }
+
+  function minimax(board, depth, alpha, beta, maximizingPlayer) {
+    const validLocations = getValidLocations(board);
+    const terminal = isTerminalNode(board);
+
+    if(depth === 0 || terminal) {
+      if(terminal) {
+        if(winningMove(board, AI)) {
+          return [null, 1e10];
+        } else if(winningMove(board, PLAYER)) {
+          return [null, -1e10];
+        } else {
+          return [null, 0];
+        }
+      } else {
+        return [null, scorePosition(board, AI)];
+      }
+    }
+
+    if(maximizingPlayer) {
+      let value = -Infinity;
+      let column = validLocations[0];
+      validLocations.sort((a,b) => Math.abs(Math.floor(COLS/2) - a) - Math.abs(Math.floor(COLS/2) - b));
+      for(let col of validLocations) {
+        let row = getNextOpenRow(board, col);
+        let boardCopy = board.map(r => r.slice());
+        boardCopy[row][col] = AI;
+        let newScore = minimax(boardCopy, depth - 1, alpha, beta, false)[1];
+        if(newScore > value) {
+          value = newScore;
+          column = col;
+        }
+        alpha = Math.max(alpha, value);
+        if(alpha >= beta) break;
+      }
+      return [column, value];
+    } else {
+      let value = Infinity;
+      let column = validLocations[0];
+      validLocations.sort((a,b) => Math.abs(Math.floor(COLS/2) - a) - Math.abs(Math.floor(COLS/2) - b));
+      for(let col of validLocations) {
+        let row = getNextOpenRow(board, col);
+        let boardCopy = board.map(r => r.slice());
+        boardCopy[row][col] = PLAYER;
+        let newScore = minimax(boardCopy, depth - 1, alpha, beta, true)[1];
+        if(newScore < value) {
+          value = newScore;
+          column = col;
+        }
+        beta = Math.min(beta, value);
+        if(alpha >= beta) break;
+      }
+      return [column, value];
+    }
+  }
+
+  function playerMove(col) {
+    if(!isValidLocation(board, col)) {
+      messageDiv.textContent = "Column full! Try another.";
+      return;
+    }
+    const row = getNextOpenRow(board, col);
+    dropPiece(board, row, col, PLAYER);
+    renderBoard();
+
+    if(winningMove(board, PLAYER)) {
+      gameOver = true;
+      playerWins++;
+      updateWins();
+      messageDiv.textContent = "You win! 🎉";
+      return;
+    }
+
+    if(isBoardFull(board)) {
+      gameOver = true;
+      messageDiv.textContent = "It's a tie!";
+      return;
+    }
+
+    playerTurn = false;
+    messageDiv.textContent = "AI is thinking...";
+    setTimeout(aiMove, 100); // small delay for UX
+  }
+
+  function aiMove() {
+    const [col] = minimax(board, 5, -Infinity, Infinity, true); // depth 5 for balance speed/difficulty
+    if(col === null || !isValidLocation(board, col)) {
+      // fallback: pick random valid
+      const valid = getValidLocations(board);
+      if(valid.length === 0) {
+        gameOver = true;
+        messageDiv.textContent = "It's a tie!";
+        return;
+      }
+      col = valid[Math.floor(Math.random()*valid.length)];
+    }
+    const row = getNextOpenRow(board, col);
+    dropPiece(board, row, col, AI);
+    renderBoard();
+
+    if(winningMove(board, AI)) {
+      gameOver = true;
+      aiWins++;
+      updateWins();
+      messageDiv.textContent = "AI wins! 🤖";
+      return;
+    }
+
+    if(isBoardFull(board)) {
+      gameOver = true;
+      messageDiv.textContent = "It's a tie!";
+      return;
+    }
+
+    playerTurn = true;
+    messageDiv.textContent = "Your turn! Click a column.";
+  }
+
+  function updateWins() {
+    winsDiv.textContent = `Player Wins: ${playerWins} | AI Wins: ${aiWins}`;
+  }
+
+  function resetGame() {
+    createBoardArray();
+    renderBoard();
+    gameOver = false;
+    playerTurn = true;
+    messageDiv.textContent = "Your turn! Click a column.";
+  }
+
+  resetBtn.addEventListener('click', resetGame);
+
+  // Initialize game
+  createBoardArray();
+  createBoardUI();
+  renderBoard();
+
+})();
+</script>
+
+</body>
+</html>
